@@ -18,7 +18,9 @@
 # along with ianitor.  If not, see <http://www.gnu.org/licenses/>.
 
 from time import sleep
+from contextlib import contextmanager
 import os
+import tempfile
 
 import mock
 from consul import Consul
@@ -31,13 +33,26 @@ else:
     SLEEP_WAIT = 0.1
 
 
-def get_tailf_service(session):
+def get_tailf_service(session, ttl=SLEEP_WAIT * 2, http=None, script=None,
+                      interval=SLEEP_WAIT):
+    """
+    Register a dummy service with consul
+
+    :param session: the consul session to bind to
+    :param ttl: the TTL to be used as a health check
+    :param http: a http address to be used as a health check
+    :param script: a script to be used as a health check
+    :param interval: the interval at which to check script or http checks
+    :return: a prepared Service
+    """
     return service.Service(
         ["tail", "-f", "/dev/null"],
         session=session,
         service_name="tailf",
-        # small ttl for faster testing
-        ttl=SLEEP_WAIT * 2,
+        ttl=ttl,
+        script=script,
+        http=http,
+        interval=interval
     )
 
 
@@ -228,3 +243,40 @@ def test_ignore_connection_failures():
     # assert service can be killed
     tailf.kill()
     tailf.process.wait()
+
+
+def test_script_healthcheck():
+    """Check if setting a script as a health check works."""
+    @contextmanager
+    def healthcheck_file():
+        """Get a tmp healthcheck file that can be used to simulate a script
+
+        :return: the file handler
+        """
+        (fd, script) = tempfile.mkstemp(suffix='healthcheck')
+        os.fchmod(fd, 436)
+        yield script
+        os.close(fd)
+        os.remove(script)
+
+    test_remove_services()
+    session = Consul()
+    with healthcheck_file() as script:
+        tailf = get_tailf_service(
+            session, ttl=None, script='exit `cat %s`' % script
+        )
+        # assert that there is no checks yet
+        _, checks = session.health.service(tailf.service_name)
+        assert not checks
+
+        tailf.register()
+        # small sleep for cluster consensus
+        sleep(SLEEP_WAIT * 10)
+        assert _get_service_status(session, tailf) in ("passing", "warning")
+
+        # check to see if the various states are correctly handled
+        for (code, state) in enumerate(["passing", "warning", "critical"]):
+            with open(script, 'w') as f:
+                f.write(str(code))
+            sleep(SLEEP_WAIT * 10)
+            assert _get_service_status(session, tailf) == state

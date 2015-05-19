@@ -74,7 +74,10 @@ def main():
         service_name=args.service_name,
         service_id=args.id,
         tags=args.tags,
-        port=args.port
+        port=args.port,
+        http=args.http,
+        script=args.script,
+        interval=args.interval,
     )
 
     service.start()

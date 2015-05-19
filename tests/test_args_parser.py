@@ -58,3 +58,9 @@ TEST_TTL = 100
 def test_default_heartbeat():
     args, invocation = args_parser.parse_args()
     assert args.heartbeat == TEST_TTL / 10.
+
+
+@patch('sys.argv', ["ianitor", "tailf", '--ttl', str(TEST_TTL), '--', 'tail', '-f', 'something'])  # noqa
+def test_default_interval():
+    args, invocation = args_parser.parse_args()
+    assert args.interval == TEST_TTL / 10.

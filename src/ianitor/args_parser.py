@@ -120,8 +120,29 @@ def get_parser():
 
     parser.add_argument(
         "--ttl",
-        metavar="seconds", type=float, default=DEFAULT_TTL,
+        metavar="seconds", type=float, default=None,
         help="set TTL of service in consul cluster"
+    )
+
+    parser.add_argument(
+        "--script",
+        metavar="script", default=None,
+        help="a script that returns the service's health (0 is passing, 1 is"
+             "a warning, otherwise failure). This setting is overridden by ttl"
+    )
+
+    parser.add_argument(
+        "--http",
+        metavar="http address", default=None,
+        help="an endpoint that checks the service (2xx is passing, 429 is a "
+             "warning, otherwise failure). This setting is overridden by"
+             "--script and --ttl"
+    )
+
+    parser.add_argument(
+        "--interval",
+        metavar="seconds", type=float, default=None,
+        help="set health check interval (defaults to ttl/10)",
     )
 
     parser.add_argument(
@@ -192,11 +213,23 @@ def parse_args():
 
         args = parser.parse_args(argv)
 
+        # set default ttl if no other check has been specified
+        if not args.ttl and not args.script and not args.http:
+            args.ttl = DEFAULT_TTL
+
+        ttl = args.ttl or DEFAULT_TTL
         # set default heartbeat to ttl / 10. if not specified
         if not args.heartbeat:
-            args.heartbeat = args.ttl / 10.
+            args.heartbeat = ttl / 10.
             logger.debug(
                 "heartbeat not specified, setting to %s" % args.heartbeat
+            )
+
+        # set default interval to ttl / 10. if not specified
+        if not args.interval:
+            args.interval = ttl / 10.
+            logger.debug(
+                "interval not specified, setting to %s" % args.interval
             )
 
         return args, invocation

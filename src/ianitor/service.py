@@ -35,12 +35,17 @@ def ignore_connection_errors(action="unknown"):
 
 class Service(object):
     def __init__(self, command, session, ttl, service_name,
-                 service_id=None, tags=None, port=None):
+                 service_id=None, tags=None, port=None,
+                 http=None, script=None, interval=None):
         self.command = command
         self.session = session
         self.process = None
 
         self.ttl = ttl
+        self.script = script
+        self.http = http
+        self.interval = interval
+
         self.service_name = service_name
         self.tags = tags or []
         self.port = port
@@ -80,6 +85,35 @@ class Service(object):
         self.process.kill()
         self.deregister()
 
+    def health_check(self):
+        """
+        Generate the service's health check.
+
+        python-consul only allows 1 health check, and if more than 1 option is
+        selected, it will ignore them all. Therefore, 'there can only be one'.
+        The order of preference (which is totally arbitrary) is ttl, script,
+        http.
+
+        :rtype dict:
+        :returns: a health check definition
+        """
+        # consul expects ttl and interval to have a unit, e.g. "12s", so the
+        # "s" has to be added
+        if self.ttl:
+            return {'ttl': "%ss" % self.ttl}
+        elif self.script:
+            return {
+                'script': self.script,
+                'interval': "%ss" % self.interval
+            }
+        elif self.http:
+            return {
+                'http': self.http,
+                'interval': "%ss" % self.interval
+            }
+        else:
+            return {}
+
     def register(self):
         """
         Register service in consul cluster.
@@ -88,13 +122,12 @@ class Service(object):
         """
         logger.debug("registering service")
         with ignore_connection_errors():
-            self.session.agent.service.register(
+            return self.session.agent.service.register(
                 name=self.service_name,
                 service_id=self.service_id,
                 port=self.port,
                 tags=self.tags,
-                # format it into XXXs format
-                ttl="%ss" % self.ttl,
+                **self.health_check()
             )
 
     def deregister(self):
