@@ -18,7 +18,9 @@
 # along with ianitor.  If not, see <http://www.gnu.org/licenses/>.
 
 from time import sleep
+from contextlib import contextmanager
 import os
+import tempfile
 
 import mock
 from consul import Consul
@@ -31,13 +33,21 @@ else:
     SLEEP_WAIT = 0.1
 
 
-def get_tailf_service(session):
+def get_tailf_service(session, checks=None):
+    """
+    Register a dummy service with consul
+
+    :param session: the consul session to bind to
+    :param list checks: a list of extra checks to be registered
+    :return: a prepared Service
+    """
     return service.Service(
         ["tail", "-f", "/dev/null"],
         session=session,
         service_name="tailf",
         # small ttl for faster testing
         ttl=SLEEP_WAIT * 2,
+        checks=checks,
     )
 
 
@@ -228,3 +238,39 @@ def test_ignore_connection_failures():
     # assert service can be killed
     tailf.kill()
     tailf.process.wait()
+
+
+def test_script_healthcheck():
+    """Check if adding extra health checks works."""
+    @contextmanager
+    def healthcheck_file():
+        """Get a tmp healthcheck file that can be used to simulate a script
+        :return: the file handler
+        """
+        (fd, script) = tempfile.mkstemp(suffix='healthcheck')
+        os.fchmod(fd, 436)
+        yield script
+        os.close(fd)
+        os.remove(script)
+
+    test_remove_services()
+    session = Consul()
+    with healthcheck_file() as script:
+        tailf = get_tailf_service(session, checks=['exec:exit `cat %s`' % script, 'exec: ls'])
+        # assert that there are no checks yet
+        _, checks = session.health.service(tailf.service_name)
+        assert not checks
+
+        tailf.register()
+        # small sleep for cluster consensus
+        sleep(SLEEP_WAIT * 10)
+        assert _get_service_status(session, tailf) in ("passing", "warning")
+
+        # check to see if the various states are correctly handled
+        for (code, state) in enumerate(["passing", "warning", "critical"]):
+            with open(script, 'w') as f:
+                f.write(str(code))
+            sleep(SLEEP_WAIT * 10)
+            assert _get_service_status(session, tailf) == state
+
+        tailf.deregister()

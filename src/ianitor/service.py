@@ -18,6 +18,7 @@
 # along with ianitor.  If not, see <http://www.gnu.org/licenses/>.
 
 from contextlib import contextmanager
+from collections import defaultdict
 import subprocess
 import logging
 from requests import ConnectionError
@@ -34,8 +35,12 @@ def ignore_connection_errors(action="unknown"):
 
 
 class Service(object):
+    EXECUTABLE_CHECKS = 'exec'
+    CALLABLE_CHECKS = 'call'
+
     def __init__(self, command, session, ttl, service_name,
-                 service_id=None, tags=None, port=None):
+                 service_id=None, tags=None, port=None,
+                 checks=None, interval=1):
         self.command = command
         self.session = session
         self.process = None
@@ -47,6 +52,8 @@ class Service(object):
         self.service_id = service_id or service_name
 
         self.check_id = "service:" + self.service_id
+        self.checks = checks or defaultdict(list)
+        self.interval = interval
 
     def start(self):
         """ Start service process.
@@ -82,7 +89,7 @@ class Service(object):
 
     def register(self):
         """
-        Register service in consul cluster.
+        Register the service and all associated checks in the consul cluster.
 
         :return: None
         """
@@ -96,17 +103,41 @@ class Service(object):
                 # format it into XXXs format
                 ttl="%ss" % self.ttl,
             )
+        self.register_checks()
+
+    def register_checks(self):
+        """Register extra checks with consul."""
+        logger.debug("registering extra checks")
+        for i, check in enumerate(self.checks[self.EXECUTABLE_CHECKS]):
+            with ignore_connection_errors():
+                self.session.agent.check.register(
+                    service_id=self.service_id,
+                    check_id=self._check_id(i),
+                    name="{service} check '{check}'".format(service=self.service_name, check=check),
+                    script=check,
+                    # format it into XXXs format
+                    interval="%ss" % self.interval,
+                )
 
     def deregister(self):
         """
-        Deregister service from consul cluster.
+        Deregister the service and all associated checks from the consul cluster.
 
         :return: None
         """
+        self.deregister_checks()
         logger.debug("deregistering service")
 
         with ignore_connection_errors("deregister"):
             self.session.agent.service.deregister(self.service_id)
+
+    def deregister_checks(self):
+        """Deregister extra checks with consul."""
+        logger.debug("deregistering extra checks")
+
+        for i, check in enumerate(self.checks[self.EXECUTABLE_CHECKS]):
+            with ignore_connection_errors("deregistering check '%s'" % check):
+                self.session.agent.check.deregister(check_id=self._check_id(i))
 
     def keep_alive(self):
         """
@@ -118,6 +149,11 @@ class Service(object):
 
         :return: None
         """
+        # check whether all callables are OK
+        for check in self.checks[self.CALLABLE_CHECKS]:
+            # TODO: call the check, and on the basis of what it gets back, update the service's status
+            pass
+
         with ignore_connection_errors("ttl_pass"):
             if not self.session.health.check.ttl_pass(self.check_id):
                 # register and ttl_pass again if it failed
@@ -131,3 +167,11 @@ class Service(object):
         """
         if self.process and self.process.poll() is None:
             self.kill()
+
+    def _check_id(self, check_no):
+        """
+        Get the check id of the given check.
+
+        :return: the check id
+        """
+        return "{service}_check_{check_no}".format(service=self.service_name, check_no=check_no)

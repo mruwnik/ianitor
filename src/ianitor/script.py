@@ -74,7 +74,9 @@ def main():
         service_name=args.service_name,
         service_id=args.id,
         tags=args.tags,
-        port=args.port
+        port=args.port,
+        checks=args.checks,
+        interval=args.interval
     )
 
     service.start()
@@ -87,7 +89,7 @@ def main():
             signum = getattr(signal, signal_name)
             signal.signal(signum, signal_handler)
         except RuntimeError:
-            # signals that cannot be catched will raise RuntimeException
+            # signals that cannot be caught will raise RuntimeException
             # (SIGKILL) ...
             pass
         except OSError:

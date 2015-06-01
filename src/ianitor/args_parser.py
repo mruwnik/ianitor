@@ -20,6 +20,7 @@
 import sys
 import argparse
 import logging
+from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +103,19 @@ def coordinates(coordinates_string):
     return hostname, port
 
 
+def parse_checks(checks):
+    """
+    Parse the given checks and add them to the registered checks.
+
+    :param list checks: the checks to be parsed
+    """
+    commands = defaultdict(list)
+    for check in checks:
+        type, command = check.split(":", 1)
+        commands[type].append(command)
+    return commands
+
+
 def get_parser():
     """ Create ianotor argument parser with a set of reasonable defaults
     :return: argument parser
@@ -122,6 +136,12 @@ def get_parser():
         "--ttl",
         metavar="seconds", type=float, default=DEFAULT_TTL,
         help="set TTL of service in consul cluster"
+    )
+
+    parser.add_argument(
+        "--interval",
+        metavar="seconds", type=float, default=None,
+        help="set health check interval (defaults to ttl/10)",
     )
 
     parser.add_argument(
@@ -159,6 +179,13 @@ def get_parser():
         help="service name in consul cluster",
     )
 
+    parser.add_argument(
+        "--check",
+        action="append", metavar="check",
+        dest="checks",
+        help="add an extra check to the service (can be used multiple times)"
+    )
+
     return parser
 
 
@@ -192,11 +219,20 @@ def parse_args():
 
         args = parser.parse_args(argv)
 
+        args.checks = parse_checks(args.checks)
+
         # set default heartbeat to ttl / 10. if not specified
         if not args.heartbeat:
             args.heartbeat = args.ttl / 10.
             logger.debug(
                 "heartbeat not specified, setting to %s" % args.heartbeat
+            )
+
+        # set default interval to ttl / 10. if not specified
+        if not args.interval:
+            args.interval = args.ttl / 10.
+            logger.debug(
+                "interval not specified, setting to %s" % args.interval
             )
 
         return args, invocation

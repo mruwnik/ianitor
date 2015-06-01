@@ -61,6 +61,8 @@ Full usage:
       -h, --help                      show this help message and exit
       --consul-agent=hostname[:port]  set consul agent address
       --ttl=seconds                   set TTL of service in consul cluster
+      --interval=seconds              set health check interval (defaults to
+                                      ttl/10)
       --heartbeat=seconds             set process poll heartbeat (defaults to
                                       ttl/10)
       --tags=tag                      set service tags in consul cluster (can be
@@ -70,7 +72,21 @@ Full usage:
       --port=PORT                     set service port
       -v, --verbose                   enable logging to stdout (use multiple times
                                       to increase verbosity)
+      --check=check                   add an extra check to the service (can be
+                                      used multiple times)
 
+## Extra checks
+
+Consul allows the addition of extra health checks for services, which ianitor
+supports. To make use of this, add checks with the `--check` option. The check
+should have a prefix, depending on which different types of checks can be used:
+ 
+ * exex: use consul's helth check mechanisms to call the given script every
+  `interval` seconds e.g.
+    
+    --check=exec:some_script.py
+    
+ * call: a python callable to be checked every `interval` seconds (not implemented)
 
 ## How does ianitor work?
 
